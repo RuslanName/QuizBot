@@ -8,10 +8,10 @@ RUN mvn clean package -DskipTests
 FROM openjdk:17-alpine
 
 # Копирование JAR файла приложения
-COPY --from=build /app/target/TelegramWebApp-1.0.0-RELEASE.jar /app/
+COPY --from=build /app/target/TelegramWebApp-1.0.0-RELEASE.jar /app/TelegramWebApp.jar
 
-# Установка рабочей директории
-WORKDIR /app
+# Открытие порта для приложения
+EXPOSE 8080
 
 # Запуск Java-приложения
-CMD ["java", "-jar", "TelegramWebApp-1.0.0-RELEASE.jar"]
+CMD ["java", "-jar", "/app/TelegramWebApp.jar"]

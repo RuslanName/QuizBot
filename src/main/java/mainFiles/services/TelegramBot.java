@@ -195,7 +195,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                             int i = 1;
                             for (UserResult userResult : leaderboardUserResults) {
                                 User user = usersRepository.findById(userResult.getChatId()).orElseThrow();
-                                leaderboardMessage.append(String.format("%d) @%s - %d правильных; Время: %.2f с.; Betboom ID %d\n",
+                                leaderboardMessage.append(String.format("%d) @%s - Ответы: %d, Время: %.2f с. | Betboom ID: %d\n",
                                         i++, user.getUserName(), userResult.getResult(), userResult.getTime(), user.getBetboomId()));
                             }
 
@@ -235,11 +235,17 @@ public class TelegramBot extends TelegramLongPollingBot {
                     else if (differentStatesRepository.existsById(chatId)) {
                         if (differentStatesRepository.findById(chatId).get().getState() == ActionType.REGISTRATION.getCode()) {
                             if (isNumeric(text)) {
-                                registration(message);
+                                if (isUniqueId(text)) {
+                                    registration(message);
+                                }
+
+                                else {
+                                    sendMessage(chatId, "Уже есть пользователь с данным Betboom ID. Проверьте корректность ввода и введите снова");
+                                }
                             }
 
                             else {
-                                sendMessage(chatId, "Betboom ID введены неправильно. Проверьте корректность ввода и введите снова");
+                                sendMessage(chatId, "Betboom ID введён неправильно. Проверьте корректность ввода и введите снова");
                             }
                         }
 
@@ -811,6 +817,10 @@ public class TelegramBot extends TelegramLongPollingBot {
         else {
             return true;
         }
+    }
+
+    private boolean isUniqueId(String text) {
+        return !usersRepository.existsByBetboomId(Long.valueOf(text));
     }
 
     private boolean isCurrentTimeLower(Timestamp text) {

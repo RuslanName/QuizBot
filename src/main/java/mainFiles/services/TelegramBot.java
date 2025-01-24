@@ -97,7 +97,8 @@ public class TelegramBot extends TelegramLongPollingBot {
     static final String NO_BUTTON = "Нет";
     static final String YES_BUTTON = "Да";
 
-    static final String NO_CHANNEL_FOLLOW_TEXT = "<b>Вы не подписаны на канал: https://t.me/roganov_hockey</b> \n<i>Подпишитесь, и сможете пользоваться ботом</i>";
+    static final String NO_CHANNEL_FOLLOW_TEXT = "<b>Вы не подписаны на канал: https://t.me/roganov_hockey</b> \n" +
+            "<i>Подпишитесь, и сможете пользоваться ботом</i>";
 
     static final String HELP_TEXT = boldAndUnderline("СПИСОК КОМАНД") + "\n\n" +
             "/start - запустить бота \n" +
@@ -227,21 +228,37 @@ public class TelegramBot extends TelegramLongPollingBot {
                             registration(message);
                         }
 
-                        else if (differentStatesRepository.findById(chatId).get().getState() == ActionType.QUIZ_CREATE.getCode() && quizQuestionCorrectness(message)) {
-                            try {
-                                addQuestionDatabase(message);
-                            } catch (TelegramApiException e) {
-                                throw new RuntimeException(e);
-                            } catch (MalformedURLException e) {
-                                throw new RuntimeException(e);
+                        else if (differentStatesRepository.findById(chatId).get().getState() == ActionType.QUIZ_CREATE.getCode()) {
+                            if (quizQuestionCorrectness(message)) {
+                                try {
+                                    addQuestionDatabase(message);
+                                } catch (TelegramApiException e) {
+                                    throw new RuntimeException(e);
+                                } catch (MalformedURLException e) {
+                                    throw new RuntimeException(e);
+                                }
+
+                                setState(chatId, ActionType.QUIZ_CONTINUE_CREATE_QUESTION);
+                                sendQwizContinueCreateQuestionMessage(chatId);
                             }
 
-                            setState(chatId, ActionType.QUIZ_CONTINUE_CREATE_QUESTION);
-                            sendQwizContinueCreateQuestionMessage(chatId);
+                            else {
+                                sendMessage(chatId, "Вопрос введён неправильно. Проверьте корректность ввода и введите снова");
+                            }
                         }
 
                         else if (differentStatesRepository.findById(chatId).get().getState() == ActionType.QUIZ_ADD_TIME_LIMIT.getCode()) {
-                            addQuizTimeLimitDatabase(chatId, text);
+                            if (isValidDateFormat(text)) {
+                                addQuizTimeLimitDatabase(chatId, text);
+
+                                for (User user : usersRepository.findAll()) {
+                                    sendMessage(chatId, "Добавлен новый квиз");
+                                }
+                            }
+
+                            else {
+                                sendMessage(chatId, "Время введено неправильно. Проверьте корректность ввода и введите снова");
+                            }
                         }
                     }
                 }
@@ -443,7 +460,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(keyboard);
 
-        String text = "В квизе " + questionsRepository.count() + " вопросов. Ваша задача попытаться ответить как можно быстрее и правильнее. Ограничения по времени нет. Начать?";
+        String text = "В квизе " + questionsRepository.count() + " вопросов. " +
+                "Ваша задача попытаться ответить как можно быстрее и правильнее. Ограничения по времени нет. Начать?";
 
         sendMessage(chatId, text, markup);
     }
@@ -454,9 +472,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         if (quizSetting.isPresent() && !isCurrentTimeLower(quizSetting.get().getTimeLimit())) {
             sendMessage(chatId, "Квиз больше нельзя пройти");
 
-            List<QuizState> quizStates = quizStatesRepository.findByChatId(chatId);
-
-            for (QuizState quizState : quizStates) {
+            for (QuizState quizState : quizStatesRepository.findByChatId(chatId)) {
                 quizStatesRepository.delete(quizState);
             }
 
@@ -487,7 +503,8 @@ public class TelegramBot extends TelegramLongPollingBot {
                 UserResult userResult = userResultsRepository.findById(chatId)
                         .orElseThrow();
 
-                sendMessage(chatId, "Вы прошли квиз за " + userResult.getTime() + " с. У вас " + userResult.getResult() + " из " + questionsRepository.count() + " правильных ответов");
+                sendMessage(chatId, String.format("Вы прошли квиз за %.2f с. У вас %d из %d правильных ответов", 
+                        userResult.getTime(), userResult.getResult(), questionsRepository.count()));
 
                 differentStatesRepository.deleteById(chatId);
                 return;
@@ -570,26 +587,22 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void addQuizTimeLimitDatabase(long chatId, String text) {
-        if (isValidDateFormat(text)) {
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
-            LocalDateTime dateTime = LocalDateTime.parse(text, formatter);
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
+        LocalDateTime dateTime = LocalDateTime.parse(text, formatter);
 
-            Timestamp timeLimit = Timestamp.valueOf(dateTime.atZone(ZoneId.systemDefault()).toLocalDateTime());
+        Timestamp timeLimit = Timestamp.valueOf(dateTime.atZone(ZoneId.systemDefault()).toLocalDateTime());
 
-            QuizSetting quizSetting = new QuizSetting();
+        QuizSetting quizSetting = new QuizSetting();
 
-            quizSetting.setId(getNextId("quiz_settings_data"));
+        quizSetting.setId(getNextId("quiz_settings_data"));
 
-            quizSetting.setTimeLimit(timeLimit);
+        quizSetting.setTimeLimit(timeLimit);
 
-            quizSettingsRepository.save(quizSetting);
+        quizSettingsRepository.save(quizSetting);
 
-            sendMessage(chatId, "Создание квиза завершено");
+        sendMessage(chatId, "Создание квиза завершено");
 
-            differentStatesRepository.deleteById(chatId);
-        } else {
-            sendMessage(chatId, "Время введено неправильно. Проверьте корректность ввода и введите снова");
-        }
+        differentStatesRepository.deleteById(chatId);
     }
 
     private void addAnswerResultDatabase(long chatId, Timestamp finishAt) {
@@ -815,6 +828,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private List<InlineKeyboardButton> createInlineKeyboardRow(String... buttons) {
         List<InlineKeyboardButton> row = new ArrayList<>();
+
         for (String textAndCallback : buttons) {
             InlineKeyboardButton button = new InlineKeyboardButton();
             button.setText(textAndCallback);

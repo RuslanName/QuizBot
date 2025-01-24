@@ -13,8 +13,5 @@ COPY --from=build /app/target/TelegramWebApp-1.0.0-RELEASE.jar /app/
 # Установка рабочей директории
 WORKDIR /app
 
-# Открытие порта для приложения
-EXPOSE 8080
-
 # Запуск Java-приложения
 CMD ["java", "-jar", "TelegramWebApp-1.0.0-RELEASE.jar"]

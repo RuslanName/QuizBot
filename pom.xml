@@ -13,7 +13,7 @@
 	<version>1.0.0-RELEASE</version>
 
 	<properties>
-		<java.version>23</java.version>
+		<java.version>17</java.version>
 		<telegram.version>6.7.0</telegram.version>
 		<lombok.version>1.18.36</lombok.version>
 		<emoji.version>5.1.1</emoji.version>

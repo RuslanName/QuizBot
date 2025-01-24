@@ -1,11 +1,11 @@
 # Сборка Java-приложения
-FROM maven:3.8.5-openjdk-23 AS build
+FROM docker.io/library/maven:3.8.5-openjdk-17 AS build
 WORKDIR /app
 COPY . /app
 RUN mvn clean package -DskipTests
 
 # Финальный образ
-FROM openjdk:23-alpine
+FROM openjdk:17-alpine
 
 # Копирование JAR файла приложения
 COPY --from=build /app/target/TelegramWebApp-1.0.0-RELEASE.jar /app/TelegramWebApp.jar

@@ -15,7 +15,7 @@ public class BotConfig {
     @Value("${bot.token}")
     String token;
 
-    @Value("${bot.owner}")
+    @Value("${bot.ownerChatId}")
     Long ownerChatId;
 
     @Value("${bot.channelChatId}")
@@ -24,6 +24,9 @@ public class BotConfig {
     @Value("${bot.checkChannelChatId}")
     boolean checkChannelChatId;
 
-    @Value("${question.iconsPath}")
+    @Value("${iconsPath.question}")
     String questionIconsPath;
+
+    @Value("${WebURL.betboomRegistration}")
+    String betboomRegistrationURL;
 }

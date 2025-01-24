@@ -42,6 +42,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -448,53 +449,69 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendQuizPassingQuestionMessage(long chatId, int messageId) {
-        Question question = null;
+        Optional<QuizSetting> quizSetting = quizSettingsRepository.findById(1);
 
-        QuizState quizState = new QuizState();
+        if (quizSetting.isPresent() && !isCurrentTimeLower(quizSetting.get().getTimeLimit())) {
+            sendMessage(chatId, "Квиз больше нельзя пройти");
 
-        if (!quizStatesRepository.existsByChatId(chatId)) {
-            question = questionsRepository.findById(1)
-                    .orElseThrow();
-            quizState.setStartAt(new Timestamp(System.currentTimeMillis()));
-        }
+            List<QuizState> quizStates = quizStatesRepository.findByChatId(chatId);
 
-        else if (getNextIdForChatId("quiz_states_data", chatId) <= questionsRepository.count()) {
-            question = questionsRepository.findById(getNextIdForChatId("quiz_states_data", chatId))
-                    .orElseThrow();
-        }
-
-        else {
-            Timestamp finishAt = new Timestamp(System.currentTimeMillis());
-
-            addAnswerResultDatabase(chatId, finishAt);
-
-            UserResult userResult = userResultsRepository.findById(chatId)
-                    .orElseThrow();
-
-            sendMessage(chatId, "Вы прошли квиз за " + userResult.getTime() + " с. У вас " + userResult.getResult() + " из " + questionsRepository.count() + " правильных ответов");
+            for (QuizState quizState : quizStates) {
+                quizStatesRepository.delete(quizState);
+            }
 
             differentStatesRepository.deleteById(chatId);
-            return;
-        }
-
-        List<AnswerOption> answerOptions = answerOptionsRepository.findByQuestionId(question.getId());
-
-        InlineKeyboardMarkup markup = createAnswerMarkup(answerOptions);
-
-        if (question.getIconPath() != null) {
-            sendPhoto(chatId, question.getIconPath(), question.getText(), markup);
         }
 
         else {
-            sendMessage(chatId, question.getText(), markup);
+            Question question = null;
+
+            QuizState quizState = new QuizState();
+
+            if (!quizStatesRepository.existsByChatId(chatId)) {
+                question = questionsRepository.findById(1)
+                        .orElseThrow();
+                quizState.setStartAt(new Timestamp(System.currentTimeMillis()));
+            }
+
+            else if (getNextIdForChatId("quiz_states_data", chatId) <= questionsRepository.count()) {
+                question = questionsRepository.findById(getNextIdForChatId("quiz_states_data", chatId))
+                        .orElseThrow();
+            }
+
+            else {
+                Timestamp finishAt = new Timestamp(System.currentTimeMillis());
+
+                addAnswerResultDatabase(chatId, finishAt);
+
+                UserResult userResult = userResultsRepository.findById(chatId)
+                        .orElseThrow();
+
+                sendMessage(chatId, "Вы прошли квиз за " + userResult.getTime() + " с. У вас " + userResult.getResult() + " из " + questionsRepository.count() + " правильных ответов");
+
+                differentStatesRepository.deleteById(chatId);
+                return;
+            }
+
+            List<AnswerOption> answerOptions = answerOptionsRepository.findByQuestionId(question.getId());
+
+            InlineKeyboardMarkup markup = createAnswerMarkup(answerOptions);
+
+            if (question.getIconPath() != null) {
+                sendPhoto(chatId, question.getIconPath(), question.getText(), markup);
+            }
+
+            else {
+                sendMessage(chatId, question.getText(), markup);
+            }
+
+            quizState.setId(getNextId("quiz_states_data"));
+
+            quizState.setChatId(chatId);
+            quizState.setQuestionId(question.getId());
+
+            quizStatesRepository.save(quizState);
         }
-
-        quizState.setId(getNextId("quiz_states_data"));
-
-        quizState.setChatId(chatId);
-        quizState.setQuestionId(question.getId());
-
-        quizStatesRepository.save(quizState);
     }
 
     private void addQuestionDatabase(Message message) throws TelegramApiException, MalformedURLException {
@@ -867,24 +884,24 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void sendPhoto(long chatId, String photoPath, String caption, InlineKeyboardMarkup markup) {
         SendPhoto sendPhoto = new SendPhoto();
-
         sendPhoto.setChatId(chatId);
 
-        String relativePath = photoPath.replace("src/main/resources/", "");
-
-        ClassLoader classLoader = getClass().getClassLoader();
-        InputStream inputStream = classLoader.getResourceAsStream(relativePath);
-
-        try {
-            sendPhoto.setPhoto(new InputFile(inputStream, relativePath));
-        } catch (Exception e) {
-            e.printStackTrace();
+        java.io.File photoFile = Paths.get(photoPath).toFile();
+        if (!photoFile.exists()) {
+            System.err.println("Error: File not found at " + photoPath);
+            return;
         }
 
+        sendPhoto.setPhoto(new InputFile(photoFile));
         sendPhoto.setCaption(caption);
         sendPhoto.setReplyMarkup(markup);
 
-        executeFunction(sendPhoto);
+        try {
+            executeFunction(sendPhoto);
+        } catch (Exception e) {
+            System.err.println("Error: Unable to send photo");
+            e.printStackTrace();
+        }
     }
 
     private void editMessageText(long chatId, int messageId, Object text, InlineKeyboardMarkup markup) {

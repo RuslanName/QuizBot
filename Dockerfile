@@ -4,8 +4,8 @@ WORKDIR /app
 COPY . /app
 RUN mvn clean package -DskipTests
 
-# Финальный образ
-FROM openjdk:17-jdk-alpine
+# Финальный образ (Используем Debian вместо Alpine для большей совместимости)
+FROM openjdk:17
 
 # Копирование JAR файла приложения
 COPY --from=build /app/target/TelegramWebApp-1.0.0-RELEASE.jar /app/TelegramWebApp.jar

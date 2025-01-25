@@ -2,21 +2,21 @@ package mainFiles.services;
 
 import mainFiles.configs.BotConfig;
 
-import mainFiles.database.tables.answerOption.AnswerOption;
-import mainFiles.database.tables.answerOption.AnswerOptionsRepository;
-import mainFiles.database.tables.differentState.DifferentState;
-import mainFiles.database.tables.differentState.DifferentStatesRepository;
-import mainFiles.database.tables.question.Question;
-import mainFiles.database.tables.quizSetting.QuizSetting;
-import mainFiles.database.tables.quizSetting.QuizSettingsRepository;
-import mainFiles.database.tables.quizState.QuizStatesRepository;
-import mainFiles.database.tables.quizState.QuizState;
-import lombok.extern.slf4j.Slf4j;
-import mainFiles.database.tables.question.QuestionsRepository;
 import mainFiles.database.tables.user.User;
 import mainFiles.database.tables.user.UsersRepository;
+import mainFiles.database.tables.differentState.DifferentState;
+import mainFiles.database.tables.differentState.DifferentStatesRepository;
+import mainFiles.database.tables.quizSetting.QuizSetting;
+import mainFiles.database.tables.quizSetting.QuizSettingsRepository;
+import mainFiles.database.tables.question.Question;
+import mainFiles.database.tables.question.QuestionsRepository;
+import mainFiles.database.tables.answerOption.AnswerOption;
+import mainFiles.database.tables.answerOption.AnswerOptionsRepository;
+import mainFiles.database.tables.quizState.QuizStatesRepository;
+import mainFiles.database.tables.quizState.QuizState;
 import mainFiles.database.tables.userResuit.UserResult;
 import mainFiles.database.tables.userResuit.UserResultsRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -441,9 +441,9 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void registration(Message message) {
         long chatId = message.getChatId();
-        var chat = message.getChat();
+        Chat chat = message.getChat();
 
-        var user = new User();
+        User user = new User();
 
         user.setChatId(chatId);
         user.setUserName(chat.getUserName());
@@ -568,8 +568,6 @@ public class TelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, question.getText(), markup);
             }
 
-            quizState.setId(getNextId("quiz_states_data"));
-
             quizState.setChatId(chatId);
             quizState.setQuestionId(question.getId());
 
@@ -613,7 +611,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         String questionText = questionTextBuilder.toString().trim();
 
         Question question = new Question();
-        question.setId(getNextId("questions_data"));
+
         question.setText(questionText.isEmpty() ? null : questionText);
         question.setIconPath(iconPath);
         questionsRepository.save(question);
@@ -623,7 +621,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             if (line.matches("\\d+\\) .+")) {
                 AnswerOption answerOption = new AnswerOption();
-                answerOption.setId(getNextId("answer_options_data"));
+
                 answerOption.setQuestionId(question.getId());
 
                 answerOption.setText(line.replaceAll("\\d+\\) ", "").replace(" +", "").trim());
@@ -641,8 +639,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         Timestamp timeLimit = Timestamp.valueOf(dateTime.atZone(ZoneId.systemDefault()).toLocalDateTime());
 
         QuizSetting quizSetting = new QuizSetting();
-
-        quizSetting.setId(getNextId("quiz_settings_data"));
 
         quizSetting.setTimeLimit(timeLimit);
 
@@ -680,8 +676,6 @@ public class TelegramBot extends TelegramLongPollingBot {
             }
             quizStatesRepository.delete(quizState);
         }
-
-        updateDatabaseSequences("quiz_states_data");
 
         UserResult userResult = new UserResult();
         userResult.setChatId(chatId);
@@ -820,7 +814,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private boolean isUniqueId(String text) {
-        return !usersRepository.existsByBetboomId(Long.valueOf(text));
+        return !usersRepository.existsByColumn("betboomId", Long.parseLong(text));
     }
 
     private boolean isCurrentTimeLower(Timestamp text) {
@@ -861,28 +855,6 @@ public class TelegramBot extends TelegramLongPollingBot {
         WHERE chat_id = ?;
     """.formatted(tableName);
         return jdbcTemplate.queryForObject(selectMaxIdQuery, Integer.class, chatId);
-    }
-
-    public void updateDatabaseSequences(String tableName) {
-        String tempTable = "temp_" + tableName;
-        String createTempTableQuery = (
-                "CREATE TEMP TABLE %s AS " +
-                        "SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS new_id " +
-                        "FROM %s;").formatted(tempTable, tableName);
-        jdbcTemplate.execute(createTempTableQuery);
-
-        String updateQuery = (
-                "UPDATE %s " +
-                        "SET id = (SELECT new_id FROM %s WHERE %s.id = %s.id);").formatted(
-                tableName, tempTable, tableName, tempTable);
-        jdbcTemplate.execute(updateQuery);
-
-        String dropTempTableQuery = "DROP TABLE %s;".formatted(tempTable);
-        jdbcTemplate.execute(dropTempTableQuery);
-
-        String resetSequenceQuery = "UPDATE %s SET id = (SELECT COALESCE(MAX(id), 0) + ROW_NUMBER() OVER (ORDER BY id) FROM %s) WHERE id > 0;".formatted(
-                tableName, tableName);
-        jdbcTemplate.execute(resetSequenceQuery);
     }
 
     private KeyboardRow createKeyboardRow(String... buttons) {

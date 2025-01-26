@@ -29,7 +29,7 @@ public abstract class AbstractEntity<T> {
                     idField.set(this, newId);
                 }
             } catch (Exception e) {
-                throw new RuntimeException("Failed to set ID for entity: " + entityClass.getSimpleName(), e);
+                throw new RuntimeException();
             }
         }
     }

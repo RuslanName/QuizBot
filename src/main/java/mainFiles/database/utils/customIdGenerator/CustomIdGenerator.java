@@ -18,13 +18,12 @@ public class CustomIdGenerator {
             Field idField = getIdField(entityClass);
             String idFieldName = idField.getName();
 
-            // Генерация SQL-запроса для получения максимального ID
             String query = "SELECT MAX(e." + idFieldName + ") FROM " + entityClass.getSimpleName() + " e";
             Integer maxId = (Integer) entityManager.createQuery(query).getSingleResult();
 
             return (maxId == null ? 1 : maxId + 1);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to generate ID for entity: " + entityClass.getSimpleName(), e);
+            throw new RuntimeException();
         }
     }
 
@@ -34,6 +33,6 @@ public class CustomIdGenerator {
                 return field;
             }
         }
-        throw new IllegalStateException("No field annotated with @Id found in " + entityClass.getSimpleName());
+        throw new IllegalStateException();
     }
 }

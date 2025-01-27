@@ -436,7 +436,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         if (isOwner(chatId)) {
             SendMessage sendMessage = new SendMessage();
             sendMessage.setChatId(String.valueOf(chatId));
-            sendMessage.setText("Здраствуйте, владелец");
+            sendMessage.setText("Здраствуйте, владелец " + usersRepository.findById(chatId).get().getFirstName());
 
             ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup();
             replyKeyboardMarkup.setResizeKeyboard(true);
@@ -456,7 +456,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         else {
             SendMessage sendMessage = new SendMessage();
             sendMessage.setChatId(String.valueOf(chatId));
-            sendMessage.setText("Здраствуйте");
+            sendMessage.setText("Здраствуйте, " + usersRepository.findById(chatId).get().getFirstName());
 
             ReplyKeyboardMarkup replyKeyboardMarkup = new ReplyKeyboardMarkup();
             replyKeyboardMarkup.setResizeKeyboard(true);

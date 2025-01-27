@@ -9,6 +9,6 @@ import java.util.List;
 
 @Repository("userResultsRepository")
 public interface UserResultsRepository extends CrudRepository<UserResult, Long>, CustomRepository<UserResult> {
-    @Query("SELECT u FROM UserResult u ORDER BY u.result DESC, u.time ASC")
+    @Query("SELECT u FROM UserResult u ORDER BY u.result DESC, u.timeSpent ASC")
     List<UserResult> findLeaderboardUserResults();
 }

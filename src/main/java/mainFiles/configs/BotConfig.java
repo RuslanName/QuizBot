@@ -24,8 +24,11 @@ public class BotConfig {
     @Value("${bot.checkChannelChatId}")
     boolean checkChannelChatId;
 
-    @Value("${iconsPath.question}")
-    String questionIconsPath;
+    @Value("${imagePath.question}")
+    String questionImagesPath;
+
+    @Value("${imagePath.registration}")
+    String registrationImagePath;
 
     @Value("${WebURL.betboomRegistration}")
     String betboomRegistrationURL;

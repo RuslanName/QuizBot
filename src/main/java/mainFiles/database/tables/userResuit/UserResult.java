@@ -7,6 +7,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.sql.Timestamp;
+
 @Getter
 @Setter
 @Entity
@@ -20,9 +22,9 @@ public class UserResult {
     @Column(name = "result", columnDefinition = "VARCHAR(255)")
     private Integer result;
 
-    @Column(name = "time", columnDefinition = "DOUBLE PRECISION")
-    private Double time;
+    @Column(name = "time_spent", columnDefinition = "DOUBLE PRECISION")
+    private Double timeSpent;
+
+    @Column(name = "registered_at", columnDefinition = "TIMESTAMP")
+    private Timestamp registeredAt;
 }
-
-
-

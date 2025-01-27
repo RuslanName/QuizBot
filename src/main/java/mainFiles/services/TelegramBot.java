@@ -23,26 +23,23 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.GetFile;
+import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
 import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageCaption;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageMedia;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.*;
 import org.telegram.telegrambots.meta.api.objects.chatmember.ChatMember;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
-import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -94,19 +91,16 @@ public class TelegramBot extends TelegramLongPollingBot {
     static final String QUIZ_CREATE_KEYBOARD = "Создать квиз";
     static final String QUIZ_UPDATE_TIME_LIMIT_KEYBOARD = "Изменить время";
     static final String SHOW_USERS_LEADERBOARD_KEYBOARD = "Список лидеров";
+    static final String SHOW_STATISTIC_KEYBOARD = "Статистика";
     static final String USER_START_QUIZ_KEYBOARD = "Начать прохождение квиза";
 
-    static final String BETBOOM_ACCOUNT_REGISTRATION_BUTTON = "Регистрация в Betboom";
+
+    static final String BETBOOM_ACCOUNT_REGISTRATION_BUTTON = "Зарегистрироваться в BetBoom";
     static final String NO_BUTTON = "Нет";
     static final String YES_BUTTON = "Да";
 
-    static final String NO_CHANNEL_FOLLOW_TEXT = "<b>Вы не подписаны на канал: https://t.me/roganov_hockey</b> \n" +
-            "<i>Подпишитесь, и сможете пользоваться ботом</i>";
-
-    static final String HELP_TEXT = boldAndUnderline("СПИСОК КОМАНД") + "\n\n" +
-            "/start - запустить бота \n" +
-            "/registration - зарегестрироваться \n" +
-            "/help - показать информацию о возможностях бота \n";
+    static final String NO_CHANNEL_FOLLOW_TEXT = bold("Вы не подписаны на канал: https://t.me/roganov_hockey") +
+            " \n" + italic("Подпишитесь, и сможете пользоваться ботом");
 
     public TelegramBot(BotConfig config) {
         this.config = config;
@@ -162,7 +156,12 @@ public class TelegramBot extends TelegramLongPollingBot {
                     }
 
                     else if (text.equals("/help")) {
-                        sendMessage(chatId, HELP_TEXT);
+                        text = boldAndUnderline("СПИСОК КОМАНД") + "\n\n" +
+                                "/start - запустить бота \n" +
+                                "/registration - зарегестрироваться \n" +
+                                "/help - показать информацию о возможностях бота \n";
+
+                        sendMessage(chatId, text);
                     }
 
                     else if (text.equals(QUIZ_CREATE_KEYBOARD) && isOwner(chatId)) {
@@ -183,9 +182,9 @@ public class TelegramBot extends TelegramLongPollingBot {
                     }
 
                     else if (text.equals(SHOW_USERS_LEADERBOARD_KEYBOARD) && isOwner(chatId)) {
-                        List<UserResult> leaderboardUserResults = userResultsRepository.findLeaderboardUserResults();
+                        List<UserResult> userResults = userResultsRepository.findLeaderboardUserResults();
 
-                        if (leaderboardUserResults.isEmpty()) {
+                        if (userResults.isEmpty()) {
                             sendMessage(chatId, "Список лидеров пуст");
                         }
 
@@ -193,42 +192,75 @@ public class TelegramBot extends TelegramLongPollingBot {
                             StringBuilder leaderboardMessage = new StringBuilder(boldAndUnderline("СПИСОК ЛИДЕРОВ\n\n"));
 
                             int i = 1;
-                            for (UserResult userResult : leaderboardUserResults) {
+                            for (UserResult userResult : userResults) {
                                 User user = usersRepository.findById(userResult.getChatId()).orElseThrow();
                                 leaderboardMessage.append(String.format("%d) @%s - Ответы: %d, Время: %.2f с. | Betboom ID: %d\n",
-                                        i++, user.getUserName(), userResult.getResult(), userResult.getTime(), user.getBetboomId()));
+                                        i++, user.getUserName(), userResult.getResult(), userResult.getTimeSpent(), user.getBetboomId()));
                             }
 
                             sendMessage(chatId, leaderboardMessage.toString());
                         }
                     }
 
-                    else if (text.equals(USER_START_QUIZ_KEYBOARD) && usersRepository.existsById(chatId)) {
-                        if (userResultsRepository.existsById(chatId)) {
-                            sendMessage(chatId, "Вы уже прошли квиз");
+                    else if (text.equals(SHOW_STATISTIC_KEYBOARD) && isOwner(chatId)) {
+                        List<UserResult> userResults = (List<UserResult>) userResultsRepository.findAll();
+
+                        if (userResults.isEmpty()) {
+                            sendMessage(chatId, "Статистика отсутствует");
                         }
 
                         else {
-                            Optional<QuizSetting> quizSetting = quizSettingsRepository.findById(1);
+                            LocalDateTime now = LocalDateTime.now();
 
-                            if (quizSetting.isPresent() && !isCurrentTimeLower(quizSetting.get().getTimeLimit())) {
-                                sendMessage(chatId, "Квиз больше нельзя пройти");
+                            long dayCount = userResults.stream()
+                                    .filter(result -> isSameDay(result.getRegisteredAt(), now))
+                                    .count();
+
+                            long weekCount = userResults.stream()
+                                    .filter(result -> isSameWeek(result.getRegisteredAt(), now))
+                                    .count();
+
+                            StringBuilder statisticMessage = new StringBuilder(boldAndUnderline("СТАТИСТИКА\n\n"));
+
+                            statisticMessage.append(italic("Количество людей, прошедших квиз"));
+                            statisticMessage.append("За сегодня: ").append(dayCount).append("\n");
+                            statisticMessage.append("За неделю: ").append(weekCount).append("\n");
+                            statisticMessage.append("За все время: ").append(userResultsRepository.count()).append("\n");
+
+                            sendMessage(chatId, statisticMessage.toString());
+                        }
+                    }
+
+                    else if (text.equals(USER_START_QUIZ_KEYBOARD) && usersRepository.existsById(chatId)) {
+                        if (questionsRepository.existsById(1)) {
+                            if (userResultsRepository.existsById(chatId)) {
+                                sendMessage(chatId, "Вы уже прошли квиз");
                             }
 
                             else {
-                                differentStatesRepository.findById(chatId)
-                                        .map(differentState -> differentState.getState())
-                                        .filter(state -> state == ActionType.USER_PASS_QUIZ.getCode())
-                                        .ifPresentOrElse(
-                                                state -> {
-                                                    sendMessage(chatId, "Вы уже проходите квиз");
-                                                },
-                                                () -> {
-                                                    setState(chatId, ActionType.USER_START_QUIZ_QUESTION);
-                                                    sendUserStartQuizQuestionMessage(chatId);
-                                                }
-                                        );
+                                Optional<QuizSetting> quizSetting = quizSettingsRepository.findById(1);
+
+                                if (quizSetting.isPresent() && !isCurrentTimeLower(quizSetting.get().getTimeLimit())) {
+                                    sendMessage(chatId, "Квиз больше нельзя пройти");
+                                }
+
+                                else {
+                                    Optional<DifferentState> optionalState = differentStatesRepository.findById(chatId);
+
+                                    if (optionalState.isPresent() && optionalState.get().getState() == ActionType.USER_PASS_QUIZ.getCode()) {
+                                        sendMessage(chatId, "Вы уже проходите квиз");
+                                    }
+
+                                    else {
+                                        setState(chatId, ActionType.USER_START_QUIZ_QUESTION);
+                                        sendUserStartQuizQuestionMessage(chatId);
+                                    }
+                                }
                             }
+                        }
+
+                        else {
+                            sendMessage(chatId, "На данный момент квиз отсутствует");
                         }
                     }
 
@@ -412,7 +444,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             List<KeyboardRow> keyboardRows = new ArrayList<>();
 
             keyboardRows.add(createKeyboardRow(QUIZ_CREATE_KEYBOARD, QUIZ_UPDATE_TIME_LIMIT_KEYBOARD));
-            keyboardRows.add(createKeyboardRow(SHOW_USERS_LEADERBOARD_KEYBOARD, USER_START_QUIZ_KEYBOARD));
+            keyboardRows.add(createKeyboardRow(SHOW_USERS_LEADERBOARD_KEYBOARD, SHOW_STATISTIC_KEYBOARD));
+            keyboardRows.add(createKeyboardRow(USER_START_QUIZ_KEYBOARD));
 
             replyKeyboardMarkup.setKeyboard(keyboardRows);
             sendMessage.setReplyMarkup(replyKeyboardMarkup);
@@ -473,9 +506,10 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         markup.setKeyboard(keyboard);
 
-        String text = "Здравствуйте! Вам нужно зарегистрироваться. Введите свой Betboom ID";
+        String text = "Привет! Чтоб начать проходить квиз " + bold("введи ID игрового счёта в BetBoom") +
+                ", а если у тебя нет аккаунта — зарегистрируйся";
 
-        sendMessage(chatId, text, markup);
+        sendPhoto(chatId, config.getRegistrationImagePath(), text, markup);
     }
 
     private void sendQwizStartCreateQuestionMessage(long chatId) {
@@ -550,7 +584,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 UserResult userResult = userResultsRepository.findById(chatId).orElseThrow();
 
                 sendMessage(chatId, String.format("Вы прошли квиз за %.2f с. У вас %d из %d правильных ответов",
-                        userResult.getTime(), userResult.getResult(), questionsRepository.count()));
+                        userResult.getTimeSpent(), userResult.getResult(), questionsRepository.count()));
 
                 differentStatesRepository.deleteById(chatId);
                 return;
@@ -583,7 +617,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         if (message.hasPhoto()) {
             text = message.getCaption();
-            iconPath = config.getQuestionIconsPath() + saveQuestionIcon(message);
+            iconPath = config.getQuestionImagesPath() + saveQuestionIcon(message);
         }
 
         else {
@@ -680,6 +714,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         UserResult userResult = new UserResult();
         userResult.setChatId(chatId);
         userResult.setResult(correctCount);
+        userResult.setRegisteredAt(finishAt);
 
         Instant startInstant = startAt.toInstant();
         Instant finishInstant = finishAt.toInstant();
@@ -691,7 +726,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         String time = String.format("%d.%02d", seconds, milliseconds);
 
-        userResult.setTime(Double.valueOf(time));
+        userResult.setTimeSpent(Double.valueOf(time));
 
         userResultsRepository.save(userResult);
     }
@@ -738,7 +773,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private String saveQuestionIcon(Message message) throws TelegramApiException, MalformedURLException {
         String iconFileName = "icon_" + System.currentTimeMillis() + ".jpg";
-        String iconPath = config.getQuestionIconsPath() + iconFileName;
+        String iconPath = config.getQuestionImagesPath() + iconFileName;
 
         String fileId = message.getPhoto().get(message.getPhoto().size() - 1).getFileId();
         File file = this.execute(new GetFile(fileId));
@@ -759,7 +794,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         userResultsRepository.deleteAll();
         quizSettingsRepository.deleteAll();
 
-        Files.walk(Paths.get(config.getQuestionIconsPath()))
+        Files.walk(Paths.get(config.getQuestionImagesPath()))
                 .filter(Files::isRegularFile)
                 .forEach(path -> {
                     try {
@@ -837,6 +872,16 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
+    private boolean isSameDay(Timestamp timestamp, LocalDateTime now) {
+        LocalDateTime resultDate = timestamp.toLocalDateTime();
+        return resultDate.toLocalDate().isEqual(now.toLocalDate());
+    }
+
+    private boolean isSameWeek(Timestamp timestamp, LocalDateTime now) {
+        LocalDateTime resultDate = timestamp.toLocalDateTime();
+        return resultDate.getYear() == now.getYear() && resultDate.getDayOfYear() / 7 == now.getDayOfYear() / 7;
+    }
+
     public boolean isNumeric(String text) {
         return text != null && text.matches("-?\\d+");
     }
@@ -896,6 +941,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private InlineKeyboardButton createAnswerButton(AnswerOption answerOption) {
         InlineKeyboardButton button = new InlineKeyboardButton();
+
         button.setText(answerOption.getText());
         button.setCallbackData("ANSWER_OPTION_" + answerOption.getId() + "_BUTTON");
         return button;
@@ -914,11 +960,12 @@ public class TelegramBot extends TelegramLongPollingBot {
         }
     }
 
-    private void sendMessage(long chatId, String text, InlineKeyboardMarkup markup) {
+    private void sendMessage(long chatId, Object text, InlineKeyboardMarkup markup) {
         SendMessage message = new SendMessage();
+
         message.enableHtml(true);
         message.setChatId(String.valueOf(chatId));
-        message.setText(text);
+        message.setText(text.toString());
         message.setReplyMarkup(markup);
 
         executeFunction(message);
@@ -926,6 +973,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void sendMessage(long chatId, Object text) {
         SendMessage message = new SendMessage();
+
         message.enableHtml(true);
         message.setChatId(String.valueOf(chatId));
         message.setText(text.toString());
@@ -935,14 +983,15 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void sendPhoto(long chatId, String photoPath, String caption, InlineKeyboardMarkup markup) {
         SendPhoto sendPhoto = new SendPhoto();
+
         sendPhoto.setChatId(chatId);
 
         java.io.File photoFile = Paths.get(photoPath).toFile();
         if (!photoFile.exists()) {
-            System.err.println("Error: File not found at " + photoPath);
             return;
         }
 
+        sendPhoto.setParseMode(ParseMode.HTML);
         sendPhoto.setPhoto(new InputFile(photoFile));
         sendPhoto.setCaption(caption);
         sendPhoto.setReplyMarkup(markup);
@@ -950,16 +999,37 @@ public class TelegramBot extends TelegramLongPollingBot {
         try {
             executeFunction(sendPhoto);
         } catch (Exception e) {
-            System.err.println("Error: Unable to send photo");
+            e.printStackTrace();
+        }
+    }
+
+    private void sendPhoto(long chatId, String photoPath, String caption) {
+        SendPhoto sendPhoto = new SendPhoto();
+
+        sendPhoto.setChatId(chatId);
+
+        java.io.File photoFile = Paths.get(photoPath).toFile();
+        if (!photoFile.exists()) {
+            return;
+        }
+
+        sendPhoto.setParseMode(ParseMode.HTML);
+        sendPhoto.setPhoto(new InputFile(photoFile));
+        sendPhoto.setCaption(caption);
+
+        try {
+            executeFunction(sendPhoto);
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     private void editMessageText(long chatId, int messageId, Object text, InlineKeyboardMarkup markup) {
         EditMessageText message = new EditMessageText();
+
         message.enableHtml(true);
         message.setChatId(String.valueOf(chatId));
-        message.setText(text.toString());
+        message.setText((String) text);
         message.setReplyMarkup(markup);
         message.setMessageId(messageId);
 
@@ -968,6 +1038,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void editMessageText(long chatId, int messageId, Object text) {
         EditMessageText message = new EditMessageText();
+
         message.enableHtml(true);
         message.setChatId(String.valueOf(chatId));
         message.setText(text.toString());
@@ -978,6 +1049,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     private void deleteMessage(long chatId, int messageId) {
         DeleteMessage message = new DeleteMessage();
+
         message.setChatId(String.valueOf(chatId));
         message.setMessageId(messageId);
 

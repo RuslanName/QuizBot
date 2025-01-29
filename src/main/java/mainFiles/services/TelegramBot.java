@@ -1003,7 +1003,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private String convertQuizLimitTimeToString(Timestamp timestamp) {
         ZonedDateTime zonedDateTime = timestamp.toInstant().atZone(ZoneId.of("Europe/Moscow"));
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d MMMM yyyy в H:mm");
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d MMMM yyyy в H:mm", Locale.forLanguageTag("ru-RU"));
 
         return zonedDateTime.format(formatter);
     }

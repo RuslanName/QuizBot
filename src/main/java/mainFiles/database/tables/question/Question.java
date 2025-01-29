@@ -21,6 +21,6 @@ public class Question extends AbstractEntity<Question> {
     @Column(name = "text", columnDefinition = "VARCHAR(255)")
     private String text;
 
-    @Column(name = "icon_path", columnDefinition = "VARCHAR(255)")
-    private String iconPath;
+    @Column(name = "image_path", columnDefinition = "VARCHAR(255)")
+    private String imagePath;
 }

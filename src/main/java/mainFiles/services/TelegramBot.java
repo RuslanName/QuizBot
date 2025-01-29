@@ -55,9 +55,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -93,6 +91,7 @@ public class TelegramBot extends TelegramLongPollingBot {
     private JdbcTemplate jdbcTemplate;
 
     final BotConfig config;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(5);
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
@@ -115,6 +114,7 @@ public class TelegramBot extends TelegramLongPollingBot {
 
     public TelegramBot(BotConfig config) {
         this.config = config;
+
         List<BotCommand> listOfCommands = new ArrayList<>();
         listOfCommands.add(new BotCommand("/start", "запуск бота"));
         listOfCommands.add(new BotCommand("/registration", "регистрация"));
@@ -129,14 +129,17 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void scheduleTask() {
-        scheduler.scheduleAtFixedRate(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    checkQuizTimeLimitEnd();
-                } catch (Exception e) {
-                    log.error("Error in scheduled task: " + e.getMessage());
-                }
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                executorService.submit(() -> {
+                    try {
+                        checkQuizTimeLimitEnd();
+                    } catch (Exception e) {
+                        log.error("Error in scheduled task: " + e.getMessage());
+                    }
+                });
+            } catch (Exception e) {
+                log.error("Error in scheduling task: " + e.getMessage());
             }
         }, 0, 1, TimeUnit.MINUTES);
     }
@@ -189,6 +192,22 @@ public class TelegramBot extends TelegramLongPollingBot {
 
                         sendMessage(chatId, text);
                     }
+
+                    else if (text.equals("/photo")) {
+                        long startTime = System.currentTimeMillis();
+
+                        sendPhoto(chatId, config.getRegistrationImagePath(), "");
+                        sendPhoto(chatId, config.getRegistrationImagePath(), "");
+                        sendPhoto(chatId, config.getRegistrationImagePath(), "");
+                        sendPhoto(chatId, config.getRegistrationImagePath(), "");
+                        sendPhoto(chatId, config.getRegistrationImagePath(), "");
+
+                        long endTime = System.currentTimeMillis();
+                        long timeTaken = endTime - startTime;
+
+                        sendMessage(chatId, timeTaken);
+                    }
+
 
                     else if (text.equals(QUIZ_CREATE_KEYBOARD) && isOwner(chatId)) {
                         if (questionsRepository.existsById(1)) {
@@ -284,7 +303,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                             else {
                                 Optional<QuizSetting> quizSetting = quizSettingsRepository.findById(1);
 
-                                if (quizSetting.isPresent() && !isCurrentTimeLower(quizSetting.get().getTimeLimit())) {
+                                if (quizSetting.isPresent() && (!isCurrentTimeLower(quizSetting.get().getTimeLimit()) || quizSetting.get().isWinnersNotification())) {
                                     sendMessage(chatId, "Квиз больше нельзя пройти");
                                 }
 
@@ -666,9 +685,9 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendQuizPassingQuestionMessage(long chatId, int messageId) {
-        Timestamp time = quizSettingsRepository.findById(1).get().getTimeLimit();
+        QuizSetting quizSetting = quizSettingsRepository.findById(1).get();
 
-        if (quizSettingsRepository.count() > 0 && !isCurrentTimeLower(time)) {
+        if (quizSettingsRepository.count() > 0 && (!isCurrentTimeLower(quizSetting.getTimeLimit()) || quizSetting.isWinnersNotification())) {
             sendMessage(chatId, "Квиз больше нельзя пройти");
 
             for (QuizState quizState : quizStatesRepository.findByColumn("chatId", chatId)) {
@@ -702,7 +721,7 @@ public class TelegramBot extends TelegramLongPollingBot {
                 sendMessage(chatId, String.format("Вы прошли квиз за %s и ответили правильно на %d/%d вопросов" +
                                 "\n\n" + "Ожидайте сообщение с результатами %s",
                         userResult.getTimeSpent(), userResult.getResult(),
-                        questionsRepository.count(), convertQuizLimitTimeToString(time)));
+                        questionsRepository.count(), convertQuizLimitTimeToString(quizSetting.getTimeLimit())));
 
                 deleteState(chatId);
                 return;
@@ -712,8 +731,8 @@ public class TelegramBot extends TelegramLongPollingBot {
 
             InlineKeyboardMarkup markup = createAnswerMarkup(answerOptions);
 
-            if (question.getIconPath() != null) {
-                sendPhoto(chatId, question.getIconPath(), question.getText(), markup);
+            if (question.getImagePath() != null) {
+                sendPhoto(chatId, question.getImagePath(), question.getText(), markup);
             }
 
             else {
@@ -731,16 +750,16 @@ public class TelegramBot extends TelegramLongPollingBot {
         long chatId = message.getChatId();
 
         String text = null;
-        String iconPath = null;
+        String imagePath = null;
 
         if (message.hasPhoto()) {
             text = message.getCaption();
-            iconPath = config.getQuestionImagesPath() + saveQuestionIcon(message);
+            imagePath = config.getQuestionImagesPath() + saveQuestionImage(message);
         }
 
         else {
             text = message.getText();
-            iconPath = null;
+            imagePath = null;
         }
 
         if (text == null || text.isEmpty()) {
@@ -765,7 +784,7 @@ public class TelegramBot extends TelegramLongPollingBot {
         Question question = new Question();
 
         question.setText(questionText.isEmpty() ? null : questionText);
-        question.setIconPath(iconPath);
+        question.setImagePath(imagePath);
         questionsRepository.save(question);
 
         for (int i = answerStartIndex; i < lines.length; i++) {
@@ -892,8 +911,8 @@ public class TelegramBot extends TelegramLongPollingBot {
         userResultsRepository.save(userResult);
     }
 
-    private String saveQuestionIcon(Message message) throws TelegramApiException, MalformedURLException {
-        String iconFileName = "icon_" + System.currentTimeMillis() + ".jpg";
+    private String saveQuestionImage(Message message) throws TelegramApiException, MalformedURLException {
+        String iconFileName = "image_" + System.currentTimeMillis() + ".jpg";
         String iconPath = config.getQuestionImagesPath() + iconFileName;
 
         String fileId = message.getPhoto().get(message.getPhoto().size() - 1).getFileId();
@@ -1053,7 +1072,9 @@ public class TelegramBot extends TelegramLongPollingBot {
 
         if (message.hasPhoto()) {
             text = message.getCaption();
-        } else {
+        }
+
+        else {
             text = message.getText();
         }
 
@@ -1061,19 +1082,17 @@ public class TelegramBot extends TelegramLongPollingBot {
             return false;
         }
 
-        String questionPattern = "^(.*\\n)?(\\d+\\) .+\\n?)+$";
-        Pattern pattern = Pattern.compile(questionPattern, Pattern.MULTILINE);
-        Matcher matcher = pattern.matcher(text);
-
-        if (!matcher.matches()) {
-            return false;
-        }
-
         String[] lines = text.split("\\n");
+
+        boolean isTextMessage = !message.hasPhoto();
+
+        boolean hasQuestion = false;
         boolean hasCorrectAnswer = false;
         int expectedNumber = 1;
 
         for (String line : lines) {
+            line = line.trim();
+
             if (line.matches("\\d+\\) .+")) {
                 String numberPart = line.split("\\)")[0];
                 try {
@@ -1090,12 +1109,23 @@ public class TelegramBot extends TelegramLongPollingBot {
                     if (hasCorrectAnswer) {
                         return false;
                     }
-
                     hasCorrectAnswer = true;
                 }
 
                 expectedNumber++;
             }
+
+            else if (isTextMessage && !hasQuestion && line.length() > 0) {
+                hasQuestion = true;
+            }
+        }
+
+        if (isTextMessage && !hasQuestion) {
+            return false;
+        }
+
+        if (!isTextMessage && !hasQuestion) {
+            return true;
         }
 
         return hasCorrectAnswer;
@@ -1219,100 +1249,146 @@ public class TelegramBot extends TelegramLongPollingBot {
     }
 
     private void sendMessage(long chatId, Object text, InlineKeyboardMarkup markup) {
-        SendMessage message = new SendMessage();
+        CompletableFuture.runAsync(() -> {
+            SendMessage message = new SendMessage();
 
-        message.enableHtml(true);
-        message.setChatId(String.valueOf(chatId));
-        message.setText(text.toString());
-        message.setReplyMarkup(markup);
+            message.enableHtml(true);
 
-        executeFunction(message);
+            message.setChatId(String.valueOf(chatId));
+
+            message.setText(text.toString());
+            message.setReplyMarkup(markup);
+
+            try {
+                executeFunction(message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void sendMessage(long chatId, Object text) {
-        SendMessage message = new SendMessage();
+        CompletableFuture.runAsync(() -> {
+            SendMessage message = new SendMessage();
 
-        message.enableHtml(true);
-        message.setChatId(String.valueOf(chatId));
-        message.setText(text.toString());
+            message.enableHtml(true);
 
-        executeFunction(message);
+            message.setChatId(String.valueOf(chatId));
+
+            message.setText(text.toString());
+
+            try {
+                executeFunction(message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void sendPhoto(long chatId, String photoPath, String caption, InlineKeyboardMarkup markup) {
-        SendPhoto sendPhoto = new SendPhoto();
+        CompletableFuture.runAsync(() -> {
+            SendPhoto sendPhoto = new SendPhoto();
 
-        sendPhoto.setChatId(chatId);
+            sendPhoto.setChatId(chatId);
 
-        java.io.File photoFile = Paths.get(photoPath).toFile();
-        if (!photoFile.exists()) {
-            return;
-        }
+            java.io.File photoFile = Paths.get(photoPath).toFile();
 
-        sendPhoto.setParseMode(ParseMode.HTML);
-        sendPhoto.setPhoto(new InputFile(photoFile));
-        sendPhoto.setCaption(caption);
-        sendPhoto.setReplyMarkup(markup);
+            if (!photoFile.exists()) {
+                return;
+            }
 
-        try {
-            executeFunction(sendPhoto);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+            sendPhoto.setParseMode(ParseMode.HTML);
+            sendPhoto.setPhoto(new InputFile(photoFile));
+            sendPhoto.setCaption(caption);
+            sendPhoto.setReplyMarkup(markup);
+
+            try {
+                executeFunction(sendPhoto);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void sendPhoto(long chatId, String photoPath, String caption) {
-        SendPhoto sendPhoto = new SendPhoto();
+        CompletableFuture.runAsync(() -> {
+            SendPhoto sendPhoto = new SendPhoto();
 
-        sendPhoto.setChatId(chatId);
+            sendPhoto.setChatId(chatId);
 
-        java.io.File photoFile = Paths.get(photoPath).toFile();
-        if (!photoFile.exists()) {
-            return;
-        }
+            java.io.File photoFile = Paths.get(photoPath).toFile();
 
-        sendPhoto.setParseMode(ParseMode.HTML);
-        sendPhoto.setPhoto(new InputFile(photoFile));
-        sendPhoto.setCaption(caption);
+            if (!photoFile.exists()) {
+                return;
+            }
 
-        try {
-            executeFunction(sendPhoto);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+            sendPhoto.setParseMode(ParseMode.HTML);
+            sendPhoto.setPhoto(new InputFile(photoFile));
+            sendPhoto.setCaption(caption);
+
+            try {
+                executeFunction(sendPhoto);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void editMessageText(long chatId, int messageId, Object text, InlineKeyboardMarkup markup) {
-        EditMessageText message = new EditMessageText();
+        CompletableFuture.runAsync(() -> {
+            EditMessageText message = new EditMessageText();
 
-        message.enableHtml(true);
-        message.setChatId(String.valueOf(chatId));
-        message.setText((String) text);
-        message.setReplyMarkup(markup);
-        message.setMessageId(messageId);
+            message.enableHtml(true);
 
-        executeFunction(message);
+            message.setChatId(String.valueOf(chatId));
+
+            message.setText((String) text);
+            message.setReplyMarkup(markup);
+            message.setMessageId(messageId);
+
+            try {
+                executeFunction(message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void editMessageText(long chatId, int messageId, Object text) {
-        EditMessageText message = new EditMessageText();
+        CompletableFuture.runAsync(() -> {
+            EditMessageText message = new EditMessageText();
 
-        message.enableHtml(true);
-        message.setChatId(String.valueOf(chatId));
-        message.setText(text.toString());
-        message.setMessageId(messageId);
+            message.enableHtml(true);
 
-        executeFunction(message);
+            message.setChatId(String.valueOf(chatId));
+
+            message.setText(text.toString());
+            message.setMessageId(messageId);
+
+            try {
+                executeFunction(message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
 
     private void deleteMessage(long chatId, int messageId) {
-        DeleteMessage message = new DeleteMessage();
+        CompletableFuture.runAsync(() -> {
+            DeleteMessage message = new DeleteMessage();
 
-        message.setChatId(String.valueOf(chatId));
-        message.setMessageId(messageId);
+            message.setChatId(String.valueOf(chatId));
 
-        executeFunction(message);
+            message.setMessageId(messageId);
+
+            try {
+                executeFunction(message);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
     }
+
 
     private void executeFunction(SendMessage message) {
         try {
